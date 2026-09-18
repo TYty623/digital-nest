@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:pet_memorial_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  flyway:
+    enabled: true
+  session:
+    jdbc:
+      initialize-schema: always
+
+app:
+  privacy:
+    visitor-fingerprint-secret: test-only-fingerprint-secret-please-do-not-reuse
+  storage:
+    local-directory: ./target/test-uploads
+  billing:
+    mock-payments-enabled: true

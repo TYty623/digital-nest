@@ -1,0 +1,25 @@
+# Java
+server/target/
+.m2/
+*.class
+
+# Node / Vue
+web/node_modules/
+web/dist/
+web/playwright-report/
+web/test-results/
+
+# IDE and OS
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+
+# Local environment and runtime data
+.env
+.env.*
+!deploy/.env.example
+deploy/data/
+deploy/backups/
+server/data/
+*.log

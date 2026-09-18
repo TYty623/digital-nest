@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: pet-memorial-server
+  servlet:
+    multipart:
+      max-file-size: ${MULTIPART_MAX_FILE_SIZE:31MB}
+      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:31MB}
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/pet_memorial}
+    username: ${DATABASE_USERNAME:pet_memorial}
+    password: ${DATABASE_PASSWORD:pet_memorial_dev}
+  session:
+    jdbc:
+      initialize-schema: always
+  flyway:
+    enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+  forward-headers-strategy: framework
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    level: "%5p [req:%X{requestId:-}]"
+
+app:
+  security:
+    bootstrap-admin-emails: ${BOOTSTRAP_ADMIN_EMAILS:}
+    cookies:
+      secure: ${SESSION_COOKIE_SECURE:true}
+  storage:
+    local-directory: ${LOCAL_STORAGE_DIRECTORY:./data/uploads}
+    media-deletion-delay-hours: ${MEDIA_DELETION_DELAY_HOURS:24}
+    media-deletion-purge-delay-ms: ${MEDIA_DELETION_PURGE_DELAY_MS:3600000}
+  billing:
+    mock-payments-enabled: ${MOCK_PAYMENTS_ENABLED:false}
+  features:
+    digital-life-mock-enabled: ${DIGITAL_LIFE_MOCK_ENABLED:true}
+  privacy:
+    visitor-fingerprint-secret: ${VISITOR_FINGERPRINT_SECRET:}
+    deletion-revoke-days: ${ACCOUNT_DELETION_REVOKE_DAYS:7}
+    deletion-purge-delay-ms: ${ACCOUNT_DELETION_PURGE_DELAY_MS:3600000}
+    export-link-ttl-minutes: ${ACCOUNT_EXPORT_LINK_TTL_MINUTES:15}

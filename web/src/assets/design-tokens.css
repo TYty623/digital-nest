@@ -1,0 +1,27 @@
+/* Brand and visual tokens: change color, type, or elevation here. */
+:root {
+  --canvas: #141f2c;
+  --surface: #1c2a38;
+  --surface-soft: #223240;
+  --text: #efe9dc;
+  --muted: #acb6be;
+  --primary: #d8be88;
+  --primary-hover: #ead5a9;
+  --button-text: #172432;
+  --sage: #b4c7a4;
+  --night: #273248;
+  --border: #3d4b59;
+  --focus: #f0d59d;
+  --shadow: 0 24px 70px rgb(0 0 0 / 16%);
+  --danger: #ffb7ab;
+  --radius: 12px;
+  color-scheme: dark;
+  --font-sans: 'Noto Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-serif: 'Noto Serif SC', 'Songti SC', Georgia, serif;
+
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}

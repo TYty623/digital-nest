@@ -1,0 +1,26 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:h2:file:./data/local-db/pet_memorial;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  flyway:
+    enabled: true
+  session:
+    jdbc:
+      initialize-schema: always
+      schema: classpath:db/session-h2-local.sql
+
+app:
+  privacy:
+    visitor-fingerprint-secret: local-development-only-fingerprint-secret-please-do-not-reuse
+  security:
+    cookies:
+      secure: false
+  storage:
+    local-directory: ./data/local-uploads
+  billing:
+    mock-payments-enabled: true

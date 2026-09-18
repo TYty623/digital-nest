@@ -1,0 +1,903 @@
+openapi: 3.1.0
+info:
+  title: 数字小窝 API
+  version: 0.1.0
+  description: 宠物数字纪念网站当前可用接口。所有写操作需要同域 XSRF Cookie 与 X-XSRF-TOKEN 请求头；公开页的口令解锁也适用。
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      summary: 获取服务健康状态
+      responses:
+        "200": { description: 服务正常 }
+  /auth/csrf:
+    get:
+      summary: 初始化同域 CSRF Cookie
+      responses:
+        "200": { description: 已设置 XSRF-TOKEN Cookie }
+  /auth/register:
+    post:
+      summary: 注册账户并建立会话
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201": { description: 账户已创建 }
+        "409": { description: 邮箱已注册 }
+  /auth/login:
+    post:
+      summary: 登录并建立会话
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200": { description: 登录成功 }
+        "401": { description: 凭据不正确 }
+  /auth/logout:
+    post:
+      summary: 退出当前会话
+      responses:
+        "200": { description: 已退出 }
+  /auth/me:
+    get:
+      summary: 获取当前账户
+      responses:
+        "200": { description: 当前账户 }
+        "401": { description: 尚未登录 }
+  /auth/export-links:
+    post:
+      summary: 创建一次性资料包下载链接
+      description: 返回仅限当前账户、15 分钟内有效且只能消费一次的下载地址；下载内容为 ZIP，含结构化 JSON、可阅读的 Markdown、媒体清单与当前图片、短视频文件。
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: 下载地址与过期时间 }
+  /auth/export-download/{token}:
+    get:
+      summary: 消费一次性资料包下载链接
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: ZIP 资料包，下载后令牌失效 }
+        "410": { description: 下载链接已使用或已过期 }
+  /auth/account:
+    delete:
+      summary: 提交当前账户的删除请求
+      description: 请求体 confirmation 必须精确为 DELETE。提交后公开纪念页与图片立即下线，账户仍可在 7 天撤销期内导出资料并取消删除；到期后后台永久清理关联数据。
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteAccountRequest" }
+      responses:
+        "200": { description: 已安排删除，返回 scheduled 与 scheduledFor }
+  /auth/account/deletion:
+    get:
+      summary: 获取当前账户的删除请求状态
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: 返回 pending 与可撤销截止时间 scheduledFor }
+  /auth/account/deletion/cancel:
+    post:
+      summary: 取消当前账户的删除请求
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: 已取消，pending 为 false }
+        "409": { description: 删除撤销期已结束，无法再取消 }
+  /billing/plans:
+    get:
+      summary: 获取套餐目录与当前环境的开通可用性
+      description: 套餐金额、容量和托管年限由服务端返回；checkoutAvailable 只有在本地显式开启模拟支付时才可能为 true。
+      responses:
+        "200": { description: 套餐列表 }
+  /billing/orders:
+    post:
+      summary: 创建待支付订单
+      description: 服务端按套餐代码锁定价格和权益快照。请求必须带 8 至 100 字符的 Idempotency-Key 请求头；同一账户重复请求会返回同一订单，不能改为另一套餐。
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 100 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateBillingOrderRequest" }
+      responses:
+        "201": { description: 待支付订单已创建 }
+        "200": { description: 同一幂等键的订单已存在 }
+        "409": { description: 付费开通未配置或幂等键被用于另一套餐 }
+    get:
+      summary: 获取当前账户订单
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: 订单列表 }
+  /billing/orders/{orderId}/mock-pay:
+    post:
+      summary: 完成一笔本地模拟支付
+      description: 仅在 app.billing.mock-payments-enabled=true 时可用。由服务端将待支付订单改为已支付并在同一事务中发放权益；重复调用不会重复发放。
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: 订单结果与权益 }
+        "404": { description: 不存在或不属于当前账户 }
+        "409": { description: 模拟支付未启用或订单不可支付 }
+  /billing/entitlements:
+    get:
+      summary: 获取当前账户已发放的套餐权益
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: 权益列表 }
+  /billing/limits:
+    get:
+      summary: 获取当前账户的有效编辑容量
+      description: 返回服务端按当前有效套餐计算的照片、短视频与时间线限额；编辑器使用它在上传前提示可用容量，写入时仍由服务端再次校验。
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: 当前照片、短视频与时间线限额 }
+  /custom-service-requests:
+    get:
+      summary: 获取当前用户的人工定制申请
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: 当前用户的服务申请列表 }
+    post:
+      summary: 提交人工定制申请
+      description: 仅登记需求与联系方式，不创建订单、不扣款；实际收费须在正式商户支付流程开放后另行确认。
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCustomServiceRequest" }
+      responses:
+        "201": { description: 申请已提交 }
+  /custom-service-requests/{requestId}/confirm-delivery:
+    post:
+      summary: 由申请人确认人工定制交付
+      description: 仅允许申请人把 DELIVERED 状态确认成 COMPLETED。
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/CustomServiceRequestId" }
+      responses:
+        "200": { description: 已确认完成 }
+        "404": { description: 申请不存在或不属于当前用户 }
+        "409": { description: 当前申请尚未进入待确认交付状态 }
+  /admin/overview:
+    get:
+      summary: 获取运营管理概览
+      description: 返回审核、订单、匿名访问与受控媒体字节用量汇总。访问按纪念页、匿名访客指纹和日期去重；服务端不保存原始 IP 地址，也不在概览中返回媒体内容。
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: 管理概览，仅 ADMIN 或 MODERATOR 可访问 }
+        "403": { description: 缺少运营角色 }
+  /admin/tributes:
+    get:
+      summary: 获取留言审核队列
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            {
+              type: string,
+              enum: [PENDING, REPORTED, APPROVED, HIDDEN, ALL],
+              default: PENDING,
+            }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200": { description: 留言审核记录 }
+  /admin/tributes/{tributeId}:
+    patch:
+      summary: 审核或隐藏一条留言
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/TributeId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModerateTributeRequest" }
+      responses:
+        "200": { description: 留言审核完成并写入审计日志 }
+        "403": { description: 缺少运营角色 }
+  /admin/orders:
+    get:
+      summary: 获取订单概览
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200": { description: 订单概览，仅 ADMIN 或 MODERATOR 可访问 }
+  /admin/orders/{orderId}/mock-refund:
+    post:
+      summary: 撤销一笔本地模拟支付
+      description: 仅在服务端显式开启本地模拟支付时可用。运营角色必须填写原因；订单和对应权益在同一事务中更新，重复请求不会重复撤销或新增审计记录。正式支付退款必须通过支付渠道接口处理。
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/AdminOrderId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MockRefundRequest" }
+      responses:
+        "200": { description: 本地模拟退款结果 }
+        "403": { description: 缺少运营角色 }
+        "404": { description: 订单不存在 }
+        "409": { description: 模拟支付未启用或订单当前不可退款 }
+  /admin/memorials:
+    get:
+      summary: 获取公开纪念页巡查队列
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            {
+              type: string,
+              enum: [PUBLISHED, ARCHIVED, ALL],
+              default: PUBLISHED,
+            }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200": { description: 纪念页巡查记录，仅 ADMIN 或 MODERATOR 可访问 }
+  /admin/memorials/{memorialId}:
+    patch:
+      summary: 因内容审核下线一间公开纪念页
+      description: 仅能将已发布页面下线，必须填写原因并写入审计日志；恢复分享仍由页面所有者完成。
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/AdminMemorialId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ArchiveMemorialRequest" }
+      responses:
+        "200": { description: 页面已下线并写入审计日志 }
+        "403": { description: 缺少运营角色 }
+        "404": { description: 纪念页不存在 }
+        "409": { description: 页面当前未发布，无法下线 }
+  /admin/custom-service-requests:
+    get:
+      summary: 获取人工定制运营队列
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            {
+              type: string,
+              enum:
+                [
+                  OPEN,
+                  ALL,
+                  SUBMITTED,
+                  MATERIALS_PENDING,
+                  IN_PROGRESS,
+                  REVISION,
+                  OUT_OF_SCOPE,
+                  DELIVERED,
+                  COMPLETED,
+                  CANCELED,
+                ],
+              default: OPEN,
+            }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200": { description: 人工定制工单列表 }
+  /admin/custom-service-requests/{requestId}:
+    patch:
+      summary: 更新人工定制运营工单
+      description: 每次更新都要求填写原因，并写入审计日志；工作人员不能替用户确认交付完成。
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/CustomServiceRequestId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateCustomServiceRequest" }
+      responses:
+        "200": { description: 工单已更新 }
+        "409": { description: 非法状态流转或需要用户确认交付 }
+  /admin/audit-logs:
+    get:
+      summary: 获取运营操作审计日志
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200": { description: 审计日志列表 }
+  /media/images:
+    post:
+      summary: 上传纪念页图片
+      description: 仅接受不超过 5MB 的 JPG、PNG 或 WebP。服务端同时核验声明的 MIME 类型与文件签名，不能仅靠改文件扩展名或请求头绕过格式限制。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201": { description: 图片已保存 }
+        "413": { description: 图片超过 5MB }
+        "415": { description: 不支持的文件格式 }
+  /media/videos:
+    post:
+      summary: 上传纪念页短视频
+      description: 仅接受不超过 30MB 的 MP4 或 WebM。服务端同时核验声明的 MIME 类型与容器签名；视频只作为相册媒体展示，不自动播放，且由套餐短视频数量限制控制。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201": { description: 短视频已保存 }
+        "413": { description: 短视频超过 30MB }
+        "415": { description: 不支持的文件格式或文件签名 }
+  /media/{id}/content:
+    get:
+      summary: 读取受控媒体二进制内容
+      description: 草稿媒体仅限所有者读取；公开或持链接页面引用的媒体可访问；口令页面需要先在同一浏览器会话解锁。短视频支持 HTTP byte range 读取以便拖动播放进度。
+      parameters: [{ $ref: "#/components/parameters/MediaId" }]
+      responses:
+        "200": { description: 图片内容 }
+        "404": { description: 图片不存在或无查看权限 }
+  /memorials:
+    post:
+      summary: 创建私密纪念页草稿
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemorialRequest" }
+      responses:
+        "201": { description: 草稿已创建 }
+  /memorials/mine:
+    get:
+      summary: 获取当前账户的所有纪念页
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: 纪念页列表 }
+  /memorials/{id}:
+    get:
+      summary: 获取自己的纪念页详情
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      responses:
+        "200": { description: 纪念页详情 }
+        "404": { description: 不存在或无权访问 }
+    put:
+      summary: 更新自己的纪念页
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemorialRequest" }
+      responses:
+        "200":
+          {
+            description: 已更新；已发布页面切换为仅自己可见时会自动下线，原分享链接立即不可访问。,
+          }
+  /memorials/{id}/publish:
+    post:
+      summary: 发布可分享纪念页
+      description: visibility 为 LINK、PASSWORD 或 PUBLIC 的草稿可以发布。
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      responses:
+        "200": { description: 已发布 }
+        "400": { description: 尚未选择可分享范围 }
+  /memorials/{id}/archive:
+    post:
+      summary: 暂时下线已发布纪念页
+      description: 页面主人可让原分享链接暂时不可访问；内容和链接不会删除，后续可恢复。
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      responses:
+        "200": { description: 页面已下线 }
+        "409": { description: 页面尚未发布 }
+  /memorials/{id}/restore:
+    post:
+      summary: 恢复下线纪念页的分享
+      description: 恢复前会再次校验分享范围、封面和至少三张照片。
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      responses:
+        "200": { description: 页面已恢复分享 }
+        "409": { description: 页面不处于下线状态 }
+  /memorials/{id}/share-events:
+    post:
+      summary: 记录主人主动分享操作
+      description: 仅接受已发布纪念页主人复制链接或下载分享卡片后的最小化事件记录；不保存接收者、设备或地址。
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShareEventRequest" }
+      responses:
+        "200": { description: 已记录 }
+        "400": { description: 分享操作类型无效 }
+        "404": { description: 不存在或无权访问 }
+        "409": { description: 页面尚未发布 }
+  /memorials/{id}/timeline:
+    get:
+      summary: 获取自己的时间线
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      responses:
+        "200": { description: 时间线记录列表 }
+    post:
+      summary: 新增时间线记录
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TimelineEntryRequest" }
+      responses:
+        "201": { description: 时间线记录已创建 }
+        "400": { description: 当前套餐时间线容量已满 }
+  /memorials/{id}/timeline/order:
+    put:
+      summary: 调整自己的时间线顺序
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TimelineOrderRequest" }
+      responses:
+        "200": { description: 已按请求顺序返回全部时间线记录 }
+        "400": { description: 排序缺少、重复或包含不属于当前时间线的记录 }
+  /memorials/{id}/timeline/{entryId}:
+    put:
+      summary: 修改自己的时间线记录
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/MemorialId" }
+        - { $ref: "#/components/parameters/TimelineEntryId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TimelineEntryRequest" }
+      responses:
+        "200": { description: 时间线记录已更新 }
+    delete:
+      summary: 移除自己的时间线记录
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/MemorialId" }
+        - { $ref: "#/components/parameters/TimelineEntryId" }
+      responses:
+        "200": { description: 时间线记录已移除 }
+  /memorials/{id}/letter:
+    get:
+      summary: 获取自己写给宠物的信
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      responses:
+        "200": { description: 信件内容，可能为空 }
+    put:
+      summary: 新增或更新写给宠物的信
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LetterRequest" }
+      responses:
+        "200": { description: 信件已保存 }
+  /memorials/{id}/gallery:
+    get:
+      summary: 获取自己的相册媒体
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      responses:
+        "200": { description: 相册列表 }
+    post:
+      summary: 将一份已上传图片或短视频加入相册
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GalleryItemRequest" }
+      responses:
+        "201": { description: 相册照片已添加 }
+        "400": { description: 当前套餐照片或短视频容量已满 }
+  /memorials/{id}/gallery/{galleryItemId}:
+    put:
+      summary: 修改相册媒体说明
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/MemorialId" }
+        - { $ref: "#/components/parameters/GalleryItemId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GalleryCaptionRequest" }
+      responses:
+        "200": { description: 照片说明已保存 }
+    delete:
+      summary: 从相册移除一份非封面媒体
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/MemorialId" }
+        - { $ref: "#/components/parameters/GalleryItemId" }
+      responses:
+        "200": { description: 相册照片已移除 }
+  /memorials/{id}/gallery/order:
+    put:
+      summary: 保存完整相册排序
+      description: itemIds 必须恰好包含当前相册的每一个媒体 ID 一次，防止丢失或插入其他页面媒体。
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GalleryOrderRequest" }
+      responses:
+        "200": { description: 已保存的完整相册列表 }
+        "400": { description: 排序不完整、重复或含有不属于该相册的媒体 }
+  /memorials/{id}/tributes:
+    get:
+      summary: 获取自己纪念页的全部留言（含隐藏和待处理）
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: "#/components/parameters/MemorialId" }]
+      responses:
+        "200": { description: 留言列表 }
+  /memorials/{id}/tributes/{tributeId}:
+    patch:
+      summary: 显示或隐藏一条亲友留言
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/MemorialId" }
+        - { $ref: "#/components/parameters/TributeId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TributeStatusRequest" }
+      responses:
+        "200": { description: 留言状态已更新 }
+  /memorials/public/{slug}:
+    get:
+      summary: 通过公开链接查看已发布的纪念页与留言
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: 公开纪念页 }
+        "401": { description: 需要分享口令 }
+        "404": { description: 未找到或尚未公开 }
+  /memorials/public/{slug}/unlock:
+    post:
+      summary: 解锁口令保护的纪念页
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccessCodeRequest" }
+      responses:
+        "200": { description: 当前浏览器会话已获得访问权限 }
+        "401": { description: 口令不正确 }
+        "429": { description: 同一访客短时间内尝试次数过多 }
+  /memorials/public/{slug}/lights:
+    post:
+      summary: 为公开纪念页点亮一盏灯
+      description: 同一脱敏访客标识在同一纪念页每天只计一次；接口重复调用会返回 lit=false 和当前累计数。当前单实例实现还限制同一访客 24 小时内最多请求 3 次。
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: 点亮结果
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LightResponse" }
+        "403": { description: 口令保护页面尚未解锁 }
+        "429": { description: 同一访客短时间内请求次数过多 }
+  /memorials/public/{slug}/tributes:
+    post:
+      summary: 为公开纪念页留下留言
+      description: 命中基础高风险规则的留言会以 PENDING 状态保存，仅页面主人可见；主人批准后才会展示在公开页。
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TributeRequest" }
+      responses:
+        "201": { description: 留言已保存，可能返回待审核的 PENDING 状态 }
+        "429": { description: 同一访客短时间内留言次数过多 }
+  /memorials/public/{slug}/tributes/{tributeId}/report:
+    post:
+      summary: 举报公开页留言
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/TributeId" }
+      responses:
+        "200": { description: 留言已从公开页隐藏，等待主人处理 }
+        "429": { description: 同一访客短时间内举报次数过多 }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: SESSION
+  parameters:
+    MemorialId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AdminMemorialId:
+      name: memorialId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AdminOrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MediaId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TimelineEntryId:
+      name: entryId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TributeId:
+      name: tributeId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    GalleryItemId:
+      name: galleryItemId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CustomServiceRequestId:
+      name: requestId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8, maxLength: 72 }
+        displayName: { type: string, maxLength: 32 }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    DeleteAccountRequest:
+      type: object
+      required: [confirmation]
+      properties:
+        confirmation: { type: string, enum: [DELETE] }
+    CreateCustomServiceRequest:
+      type: object
+      required: [contactDetails, requestDetails]
+      properties:
+        contactDetails: { type: string, minLength: 3, maxLength: 280 }
+        requestDetails: { type: string, minLength: 10, maxLength: 3000 }
+    ModerateTributeRequest:
+      type: object
+      required: [status, reason]
+      properties:
+        status: { type: string, enum: [APPROVED, HIDDEN] }
+        reason: { type: string, minLength: 2, maxLength: 280 }
+    ArchiveMemorialRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 2, maxLength: 280 }
+    MockRefundRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 2, maxLength: 280 }
+    UpdateCustomServiceRequest:
+      type: object
+      required: [status, materialsReady, revisionCount, reason]
+      properties:
+        status:
+          {
+            type: string,
+            enum:
+              [
+                SUBMITTED,
+                MATERIALS_PENDING,
+                IN_PROGRESS,
+                REVISION,
+                OUT_OF_SCOPE,
+                DELIVERED,
+                COMPLETED,
+                CANCELED,
+              ],
+          }
+        materialsReady: { type: boolean }
+        assignee: { type: [string, "null"], maxLength: 80 }
+        dueDate: { type: [string, "null"], format: date }
+        revisionCount: { type: integer, minimum: 0, maximum: 50 }
+        customerMessage: { type: [string, "null"], maxLength: 800 }
+        reason: { type: string, minLength: 2, maxLength: 280 }
+    MemorialRequest:
+      type: object
+      required: [petName, species, visibility, version]
+      properties:
+        petName: { type: string, maxLength: 32 }
+        species: { type: string, maxLength: 32 }
+        coverMediaId: { type: [string, "null"], format: uuid }
+        farewellMessage: { type: [string, "null"], maxLength: 280 }
+        aboutTa:
+          {
+            type: [string, "null"],
+            maxLength: 1500,
+            description: 宠物的性格、习惯、喜欢的事与昵称由来,
+          }
+        companionStartedOn:
+          {
+            type: [string, "null"],
+            format: date,
+            description: 可选的相遇、领养或出生日期,
+          }
+        companionEndedOn:
+          {
+            type: [string, "null"],
+            format: date,
+            description: 可选的想念开始或陪伴结束日期,
+          }
+        visibility: { type: string, enum: [PUBLIC, LINK, PASSWORD, PRIVATE] }
+        theme: { type: string, enum: [SUNNY, NIGHT, GARDEN], default: SUNNY }
+        accessCode: { type: [string, "null"], minLength: 6, maxLength: 64 }
+        version: { type: integer, minimum: 0 }
+    ShareEventRequest:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [LINK_COPIED, SHARE_CARD_DOWNLOADED] }
+    TributeRequest:
+      type: object
+      required: [authorName, message]
+      properties:
+        authorName: { type: string, maxLength: 32 }
+        message: { type: string, maxLength: 280 }
+    TributeStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [APPROVED, HIDDEN] }
+    LightResponse:
+      type: object
+      required: [lit, count]
+      properties:
+        lit: { type: boolean, description: 本次调用是否首次计入点亮 }
+        count: { type: integer, minimum: 0, description: 该纪念页累计点亮数 }
+    AccessCodeRequest:
+      type: object
+      required: [accessCode]
+      properties:
+        accessCode: { type: string, minLength: 6, maxLength: 64 }
+    TimelineEntryRequest:
+      type: object
+      required: [datePrecision, title]
+      properties:
+        mediaId:
+          {
+            type: [string, "null"],
+            format: uuid,
+            description: 当前纪念页相册中的图片 ID；不能关联短视频,
+          }
+        eventDate: { type: [string, "null"], format: date }
+        datePrecision: { type: string, enum: [DAY, MONTH, YEAR, UNKNOWN] }
+        title: { type: string, maxLength: 80 }
+        body: { type: [string, "null"], maxLength: 1000 }
+    TimelineOrderRequest:
+      type: object
+      required: [entryIds]
+      properties:
+        entryIds:
+          type: array
+          minItems: 1
+          description: 必须恰好包含当前时间线中的每一条记录一次
+          items: { type: string, format: uuid }
+    LetterRequest:
+      type: object
+      required: [body]
+      properties:
+        subject: { type: [string, "null"], maxLength: 80 }
+        body: { type: string, maxLength: 3000 }
+    GalleryItemRequest:
+      type: object
+      required: [mediaId]
+      properties:
+        mediaId: { type: string, format: uuid }
+        caption: { type: [string, "null"], maxLength: 280 }
+    CreateBillingOrderRequest:
+      type: object
+      required: [planCode]
+      properties:
+        planCode: { type: string, enum: [GUARDIAN, TREASURE] }
+    GalleryCaptionRequest:
+      type: object
+      properties:
+        caption: { type: [string, "null"], maxLength: 280 }
+    GalleryOrderRequest:
+      type: object
+      required: [itemIds]
+      properties:
+        itemIds:
+          type: array
+          minItems: 1
+          items: { type: string, format: uuid }
